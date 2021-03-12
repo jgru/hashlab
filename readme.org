@@ -1,0 +1,201 @@
+* hashlab
+
+~hashlab~ is a tool to generate lists of hashes of known benign and common files, which can be used for whitelisting in 
+DFIR workflows. The primary intent of this tool is to increase the efficiency of the DFIR lab work and the efficacy of investigations by filtering known noise. 
+By leveraging vagrant and vboxmanage this can be accomplished in a highly automated manner. 
+
+Tested only under Debian Buster with Vagrant 2.2.14 and Vboxmanage 6.1.18r142142.
+
+** Description of the inner workings and results
+Hashlab follows a simple and modular concept and the [[https://github.com/Artemmkin/infrastructure-as-code-tutorial][infrastructure-as-code]] paradigm: 
+1. VMs are specified as vagrantfiles (See [[https://www.vagrantup.com/docs/vagrantfile][More on Vagrantfiles]])
+2. Hashlab loops over a nested directory with vagrantfiles
+3. Each and every vagrantfile is executed
+4. After running the vagrant box the virtual hard drive is cloned as raw image 
+5. The resulting raw image will be mounted with the help of [[https://github.com/ralphje/imagemounter][imagemounter]] and each volume will be hashed with [[https://manpages.debian.org/stretch-backports/hashrat/hashrat.1.en.html][hashrat]]
+6. Resulting hashlist are stored per box with a datetime-string and in its vm_name as the filename   
+
+Currently the list of MD5-hashes are formed as ~md5sum~ would do it, to ensure an easy ingestion in industry standard tools like Autopsy or X-Ways. They look as follows:
+#+BEGIN_SRC 
+MD5-Hash    /fully/qualified/filepath
+#+END_SRC
+
+** Installation 
+*** Install OS dependencies
+#+BEGIN_SRC bash
+# Install virtualbox
+wget -q https://www.virtualbox.org/download/oracle_vbox_2016.asc -O- | sudo apt-key add -
+wget -q https://www.virtualbox.org/download/oracle_vbox.asc -O- | sudo apt-key add -
+sudo add-apt-repository "deb [arch=amd64] http://download.virtualbox.org/virtualbox/debian $(lsb_release -cs) contrib"
+sudo apt update
+sudo apt install virtualbox-6.1
+
+# Install vagrant
+sudo apt install vagrant
+vagrant plugin install vagrant-windows-update
+
+# Install dependencies for image mounting 
+sudo apt-get install xmount ewf-tools afflib-tools sleuthkit disktype python-magic
+
+# Install dependency for hashing
+sudo apt install hashrat
+#+END_SRC
+
+*** Install Python libraries
+Use ~pip~ to install the libraries, which are needed by ~hashlab~:
+
+#+BEGIN_SRC bash
+pip3 install -r ./hashlab/requirements.txt
+#+END_SRC
+
+Consider installing those dependencies in a /virtualenv/ like this
+#+BEGIN_SRC bash
+# Install virtualenv package
+sudo pip3 install virtualenv 
+# Create virtualenv by specifying a specific interpreter
+virtualenv -p /usr/bin/python3.7 hashlab_venv
+# Activate newly created venv
+source hashlab_venv/bin/activate
+# Install hashlab's requirments
+pip3 install -r hashlab/requirements.txt
+# Deactivate venv
+deactivate
+# Check, if it worked and use newly created venv
+sudo hashlab_venv/bin/python3.7 hashlab/hashlab.py -h
+#+END_SRC
+
+** Usage
+*** Example usage
+Run ~hashlab.py~ with Python > 3.7 and specify the directory containing the vagrantfiles (~--box-dir~) and the directory to store the results (~--result-dir~).
+If you want to log in with timestamps, specify ~--time~.
+
+#+BEGIN_SRC 
+sudo python3.7 hashlab.py --box-dir ../boxes/ --result-dir ../hashlists --time
+#+END_SRC
+
+*Note:* ~hashlab~ needs root privileges for mounting image files.
+
+*** Tool help
+#+BEGIN_SRC bash
+sudo python3.7 hashlab.py --help
+usage: hashlab.py [-h] [--box-dir BOX_DIR] [--result-dir RESULT_DIR]
+                  [--interactive] [--time]
+
+Hashlab is a tool to generate lists of hashes of known benign and common
+files, which can be used for whitelisting in DFIR workflows. By leveraging
+vagrant and vboxmanage this can be accomplished in a highly automated manner.
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --box-dir BOX_DIR     Path to the directory, which contains subdirectories
+                        with the vagrantfiles and the neccessary files for
+                        provisioning.
+  --result-dir RESULT_DIR
+                        Path to the directory, where the resulting hashlists
+                        should be stored.
+  --interactive         Pause after vagrant up to interactively/manualy modify
+                        VM
+  --time                Log with timestamps
+
+#+END_SRC
+
+*** :exclamation: Exemplary vagrantfile
+Hashlab expects, that the vagrantfiles follow the below mentioned structure. 
+It is *very important* to include the specification of ~vb.name~ in the vagrantfile, which ensures, that vagrant will create a VirtualBox VM with the specified name. 
+This name will be used to infer the UUID of the VM for being able to clone the VM. 
+
+#+BEGIN_SRC 
+Vagrant.configure("2") do |config|
+  config.vm.box = "win10_20h2_base"
+  
+  config.vm.provider :virtualbox do |vb|
+    vb.name = "win10-updates-only"
+  end
+  
+  # Provisioning goes here...
+
+end
+#+END_SRC
+
+*** Example setup of ~--box-dir~-directory
+In the ~--box-dir~-directory live all VMs as infrastructure-as-code, more specifically in the form of vagrantfiles. 
+
+#+BEGIN_SRC 
+../boxes/
+├── win10-choco
+│   ├── cumulate
+│   ├── provision
+│   │   ├── InstallChocolatey.ps1
+│   │   ├── InstallPackages.bat
+│   │   ├── InstallPackages.ps1
+│   │   └── provision_choco.bat
+│   └── vagrantfile
+├── win10-updates-only
+│   ├── cumulate
+│   ├── provision
+│   ├── provision_always
+│   └── vagrantfile
+
+└── win7-plain
+    ├── cumulate
+    └── vagrantfile
+#+END_SRC
+
+During execution this directory is traversed recursively to scan for vagrantfiles, which will be brought up. 
+After they are running and provisioned, their virtual disk will be cloned and stored temporarily.  
+
+**** Cumulating states
+If the states should be cumulated, for example to install the latest update everytime when executing the machine and get the hashes of the newly created/modified files linked to the update, a 
+file named ~cumulate~ has to be placed as sibling to vagrantfile. This will cause, that vagrant always pops the latest snapshot and pushes it afterwards.
+#+BEGIN_SRC 
+# Create a file named cumulate as sibling to corresponding vagrantfile
+touch cumulate
+#+END_SRC  
+
+**** Provision on each and every run
+If running the provisioners of the vagrant box has to be executed on each and every run of the box - which basically means calling ~vagrant up --provision~, one can define such behaviour by placing
+a file called ~provision_always~ as sibling to the vagrantfile in question. 
+#+BEGIN_SRC 
+# Create a file named provision_always as sibling to corresponding vagrantfile
+touch provision_always
+#+END_SRC  
+
+** Excurs on Vagrant box creation with Packer
+If you intend to streamline the creation of Win10 Vagrant baseboxes with your own machine images, refer to [[https://github.com/Baune8D/packer-win10-basebox][packer-win10-basebox]] for a stripped down or [[https://github.com/StefanScherer/packer-windows][packer-windows]] for a very complete example of the creation
+of Windows baseboxes. 
+
+#+BEGIN_SRC bash
+# Install prerequisites for packer
+sudo apt install curl
+# Install Hashicorp's packer
+curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo apt-key add -
+sudo apt-get install software-properties-common  # needed for apt-add-repository
+sudo apt-add-repository "deb [arch=amd64] https://apt.releases.hashicorp.com $(lsb_release -cs) main"
+sudo apt-get update && sudo apt-get install packer
+
+# Clone packer-win10-basebox repository
+git clone https://github.com/Baune8D/packer-win10-basebox
+
+# Create sha256 of your iso
+sha256sum ../resources/Win10_20H2_v2_English_x64.iso
+# Modify iso_url to point to actual iso and modify the corresponding sha256
+emacs build_windows_10.sh
+
+# Modify autounattend.xml to use language you want to 
+# and to insert serial
+emacs packer-win10-basebox/answer_files/10/autounattend.xml
+
+# Build the machine image
+./build_windows_10.sh virtualbox
+
+# Add the resulting box to vagrant
+# Note, that this has to be done with root priviledges, 
+# so that hashlab running with root privs can use it
+sudo vagrant box add windows_10_virtualbox.box --name win10_20h2_base
+#+END_SRC
+
+** TODOs
+- [ ] Hash with "board means"
+- [ ] Make output and hashformat customizable
+- [ ] Support other providers than VirtualBox
+- [ ] Make it possible to work with .vmdks directly
