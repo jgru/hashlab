@@ -9,13 +9,13 @@ Tested only under Debian Buster with Vagrant 2.2.14 and Vboxmanage 6.1.18r142142
 ** Description of the inner workings and results
 Hashlab follows a simple and modular concept and the [[https://github.com/Artemmkin/infrastructure-as-code-tutorial][infrastructure-as-code]] paradigm: 
 1. VMs are specified as vagrantfiles (See [[https://www.vagrantup.com/docs/vagrantfile][More on Vagrantfiles]])
-2. Hashlab loops over a nested directory with vagrantfiles
+2. Hashlab loops over a nested directory structure containing vagrantfiles and additional files to provision
 3. Each and every vagrantfile is executed
-4. After running the vagrant box the virtual hard drive is cloned as raw image 
+4. After running each vagrant box its virtual hard drive is cloned as raw image 
 5. The resulting raw image will be mounted with the help of [[https://github.com/ralphje/imagemounter][imagemounter]] and each volume will be hashed with [[https://manpages.debian.org/stretch-backports/hashrat/hashrat.1.en.html][hashrat]]
 6. Resulting hashlist are stored per box with a datetime-string and in its vm_name as the filename   
 
-Currently the list of MD5-hashes are formed as ~md5sum~ would do it, to ensure an easy ingestion in industry standard tools like Autopsy or X-Ways. They look as follows:
+Currently the lists of MD5-hashes are formed as ~md5sum~ would do it, to ensure an easy ingestion in industry standard tools like Autopsy or X-Ways. They look as follows:
 #+BEGIN_SRC 
 MD5-Hash    /fully/qualified/filepath
 #+END_SRC
