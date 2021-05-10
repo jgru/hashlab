@@ -116,6 +116,9 @@ Vagrant.configure("2") do |config|
 
 end
 #+END_SRC
+If you want to install custom software, you can use Chocolatey as [[https://digitaldrummerj.me/vagrant-provisioning-with-chocolatey/][here]].
+
+To perform and install Windows updates, use the valuable provisioning plugin [[https://github.com/rgl/vagrant-windows-update][vagrant-windows-update]].
 
 *** Example setup of ~--box-dir~-directory
 In the ~--box-dir~-directory live all VMs as infrastructure-as-code, more specifically in the form of vagrantfiles. 
